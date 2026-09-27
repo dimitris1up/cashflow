@@ -716,6 +716,7 @@ function vYear(v){
   h+=`</tbody></table></div><p class="hint">Projected = end balance if each month's remaining budgets get spent and its budgeted income arrives.</p>`;
   // charts
   h+=`<div class="stack">
+      <div class="card"><h3>NET by month, ${y} (${b})</h3><div class="chartbox half"><canvas id="chT" role="img" aria-label="NET by month: total income minus total expenses plus exchanges"></canvas></div></div>
       <div class="card"><h3>Real net by month, ${y} (${b})</h3><div class="chartbox half"><canvas id="chN" role="img" aria-label="Real net by month: real income minus real spending"></canvas></div></div>
       <div class="card"><h3>End balance & projection (${b})</h3><div class="chartbox half"><canvas id="chY" role="img" aria-label="End balance by month with projection"></canvas></div></div>
       <div class="card"><h3>Savings in / out & net savings (${b})</h3><div class="chartbox"><canvas id="chS" role="img" aria-label="Money put into savings, transfers from savings and net savings by month"></canvas></div></div>
@@ -740,6 +741,13 @@ function vYear(v){
   const endD=months.map(m=>isFut(m)?null:r2(M[m].end)), projD=months.map(m=>M[m].proj===null?null:r2(M[m].proj));
   const netD=months.map(m=>isFut(m)?null:r2(M[m].realInc-M[m].realSp));
   const pos=css('--accent-2'), neg=css('--bad');
+  const sgn=v=>`${v<0?'−':'+'}${f2(Math.abs(v))}`;
+  const totD=months.map(m=>isFut(m)?null:r2(M[m].net));
+  mkChart('chT',{type:'bar',data:{labels:MN,datasets:[{label:'NET',data:totD,backgroundColor:totD.map(v=>v<0?neg:pos),borderRadius:4,borderSkipped:false,barPercentage:.7}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{...tip(),callbacks:{
+      title:c=>`${MN[c[0].dataIndex]} ${y}`,
+      label:c=>{const m=c.dataIndex+1;return [` Total income: ${f2(M[m].inc)} ${b}`,` Total expenses: ${f2(M[m].exp)} ${b}`,` Exchanges in − out: ${sgn(M[m].exIn-M[m].exOut)} ${b}`,` NET: ${sgn(c.parsed.y)} ${b}`];}}}},
+      scales:{x:{grid:{display:false},border:{display:false},ticks:{maxRotation:0,autoSkipPadding:8}},y:{grid:{color:ctx=>ctx.tick.value===0?css('--text-2'):css('--line'),drawTicks:false},border:{display:false},ticks:{maxTicksLimit:4,padding:6,callback:v=>f0(v)}}}}});
   mkChart('chN',{type:'bar',data:{labels:MN,datasets:[{label:'Real net',data:netD,backgroundColor:netD.map(v=>v<0?neg:pos),borderRadius:4,borderSkipped:false,barPercentage:.7}]},
     options:{maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{...tip(),callbacks:{
       title:c=>`${MN[c[0].dataIndex]} ${y}`,
