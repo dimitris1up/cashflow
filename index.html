@@ -15,7 +15,7 @@
   --bg:#f4f5f7; --surface:#ffffff; --surface-2:#f7f8fa; --line:#e3e6eb;
   --text:#14171c; --text-2:#525861; --muted:#8a9099;
   --accent:#1f3a5f; --accent-2:#2a78d6;
-  --s-eur:#2a78d6; --s-chf:#eb6834;
+  --s-eur:#2a78d6; --s-chf:#eb6834; --v3:#1baf7a;
   --good:#0a7d0a; --bad:#c62f2f; --warn:#b36b00;
   --good-bg:#e8f5e8; --bad-bg:#fbeaea;
   --input:#ffffff; --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
@@ -26,7 +26,7 @@
     --bg:#111214; --surface:#1a1b1e; --surface-2:#212226; --line:#2e3036;
     --text:#f2f3f5; --text-2:#b9bdc6; --muted:#7d828c;
     --accent:#8fb4e8; --accent-2:#3987e5;
-    --s-eur:#3987e5; --s-chf:#d95926;
+    --s-eur:#3987e5; --s-chf:#d95926; --v3:#199e70;
     --good:#3fbf3f; --bad:#ef6b6b; --warn:#e3a13a;
     --good-bg:#15301a; --bad-bg:#3a1a1a;
     --input:#16171a; --shadow:none;
@@ -37,7 +37,7 @@
   --bg:#111214; --surface:#1a1b1e; --surface-2:#212226; --line:#2e3036;
   --text:#f2f3f5; --text-2:#b9bdc6; --muted:#7d828c;
   --accent:#8fb4e8; --accent-2:#3987e5;
-  --s-eur:#3987e5; --s-chf:#d95926;
+  --s-eur:#3987e5; --s-chf:#d95926; --v3:#199e70;
   --good:#3fbf3f; --bad:#ef6b6b; --warn:#e3a13a;
   --good-bg:#15301a; --bad-bg:#3a1a1a;
   --input:#16171a; --shadow:none;
@@ -718,6 +718,7 @@ function vYear(v){
   h+=`<div class="stack">
       <div class="card"><h3>Real net by month, ${y} (${b})</h3><div class="chartbox half"><canvas id="chN" role="img" aria-label="Real net by month: real income minus real spending"></canvas></div></div>
       <div class="card"><h3>End balance & projection (${b})</h3><div class="chartbox half"><canvas id="chY" role="img" aria-label="End balance by month with projection"></canvas></div></div>
+      <div class="card"><h3>Savings in / out & net savings (${b})</h3><div class="chartbox"><canvas id="chS" role="img" aria-label="Money put into savings, transfers from savings and net savings by month"></canvas></div></div>
       <div class="card"><h3>Spending by category, ${y} (${b})</h3><div class="chartbox"><canvas id="chC" role="img" aria-label="Spending by category"></canvas></div></div></div>`;
   // category detail
   h+=`<div class="sectitle">By type</div><div class="scroll"><table class="num"><thead><tr><th>Type</th>${MN.map(n=>`<th>${n}</th>`).join('')}<th>Total</th><th>Avg</th></tr></thead><tbody>`;
@@ -748,6 +749,18 @@ function vYear(v){
     {label:'End balance',data:endD,borderColor:css('--accent-2'),backgroundColor:css('--accent-2'),borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0},
     {label:'Projected',data:projD,borderColor:css('--muted'),backgroundColor:css('--muted'),borderDash:[5,4],borderWidth:2,pointRadius:3,tension:0}]},
     options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true}},tooltip:{...tip(),callbacks:{label:c=>` ${c.dataset.label}: ${f2(c.parsed.y)} ${b}`}}},scales:(()=>{const x=axes();x.y.ticks.maxTicksLimit=4;x.x.ticks.maxRotation=0;x.x.ticks.autoSkipPadding=8;return x;})()}});
+  { // Savings in / out & net savings
+    const pullT=cfg('pull');
+    const vis=months.filter(m=>!isFut(m));
+    const svD=months.map(m=>isFut(m)?null:r2(M[m].sav)), plD=months.map(m=>isFut(m)?null:r2(M[m].pull)), nsD=months.map(m=>isFut(m)?null:r2(M[m].ns));
+    const sum=a=>a.reduce((s,v)=>s+(v||0),0);
+    const c1=css('--accent-2'), c2=css('--s-chf'), c3=css('--v3');
+    mkChart('chS',{data:{labels:MN,datasets:[
+      {type:'bar',nm:'Savings (put in)',label:`Savings (put in) · ${f0(sum(svD))}`,data:svD,backgroundColor:c1,borderRadius:4,borderSkipped:'start',barPercentage:.8,categoryPercentage:.7,order:2},
+      {type:'bar',nm:pullT,label:`${pullT} · ${f0(sum(plD))}`,data:plD,backgroundColor:c2,borderRadius:4,borderSkipped:'start',barPercentage:.8,categoryPercentage:.7,order:2},
+      {type:'line',nm:'Net savings',label:`Net savings · ${f0(sum(nsD))}`,data:nsD,borderColor:c3,backgroundColor:c3,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0,order:1}]},
+      options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,sort:(x,y)=>x.datasetIndex-y.datasetIndex}},tooltip:{...tip(),itemSort:(x,y)=>x.datasetIndex-y.datasetIndex,callbacks:{label:c=>` ${c.dataset.nm}: ${f2(c.parsed.y)} ${b}`}}},scales:axes()}});
+  }
   const ct=catTotals.filter(x=>x[1]>0).sort((a,b2)=>b2[1]-a[1]);
   mkChart('chC',{type:'bar',data:{labels:ct.map(x=>x[0]),datasets:[{label:'Spent',data:ct.map(x=>r2(x[1])),backgroundColor:css(b==='EUR'?'--s-eur':'--s-chf'),borderRadius:4,borderSkipped:'start',barPercentage:.75}]},
     options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{...tip(),callbacks:{label:c=>` ${f2(c.parsed.x)} ${b}`}}},
