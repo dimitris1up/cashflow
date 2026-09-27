@@ -829,7 +829,7 @@ function exportJSON(){
 function exportCSV(){
   const TM=typeMap(); const rows=[['date','description','category','type','amount','currency','received','received_currency']];
   for(const t of allTxSorted().reverse()){ const tt=resolveType(t.t); rows.push([`${t.y}-${t.md}`,t.ds,t.t===FX?'EXCHANGE':(TM[tt]?TM[tt].k:''),t.t===FX?'':tt,t.a,t.cy,t.a2??'',t.cy2??'']); }
-  download('cashflow_transactions.csv',rows.map(r=>r.map(x=>{x=String(x??'');return /[",\n;]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x;}).join(',')).join('\n'),'text/csv');
+  download('cashflow_transactions.csv','\uFEFF'+rows.map(r=>r.map(x=>{x=String(x??'');return /[",\n;]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x;}).join(',')).join('\n'),'text/csv');
 }
 async function importJSON(file){
   if(!file) return; let j; try{ j=JSON.parse(await file.text()); }catch(e){ return toast('Not a valid JSON file'); }
