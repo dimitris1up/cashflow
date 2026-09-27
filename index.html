@@ -752,13 +752,13 @@ function vYear(v){
   { // Savings in / out & net savings
     const pullT=cfg('pull');
     const vis=months.filter(m=>!isFut(m));
-    const svD=months.map(m=>isFut(m)?null:r2(M[m].sav)), plD=months.map(m=>isFut(m)?null:r2(M[m].pull)), nsD=months.map(m=>isFut(m)?null:r2(M[m].ns));
+    const svD=months.map(m=>isFut(m)?null:r2(M[m].sav)), plD=months.map(m=>isFut(m)?null:-r2(M[m].pull)), nsD=months.map(m=>isFut(m)?null:r2(M[m].ns));
     const sum=a=>a.reduce((s,v)=>s+(v||0),0);
     const c1=css('--accent-2'), c2=css('--s-chf'), c3=css('--v3');
     mkChart('chS',{data:{labels:MN,datasets:[
-      {type:'bar',nm:'Savings (put in)',label:`Savings (put in) · ${f0(sum(svD))}`,data:svD,backgroundColor:c1,borderRadius:4,borderSkipped:'start',barPercentage:.8,categoryPercentage:.7,order:2},
+      {type:'bar',nm:'Savings (put in)',label:`Savings · ${f0(sum(svD))}`,data:svD,backgroundColor:c1,borderRadius:4,borderSkipped:'start',barPercentage:.8,categoryPercentage:.7,order:2},
       {type:'bar',nm:pullT,label:`${pullT} · ${f0(sum(plD))}`,data:plD,backgroundColor:c2,borderRadius:4,borderSkipped:'start',barPercentage:.8,categoryPercentage:.7,order:2},
-      {type:'line',nm:'Net savings',label:`Net savings · ${f0(sum(nsD))}`,data:nsD,borderColor:c3,backgroundColor:c3,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0,order:1}]},
+      {type:'line',nm:'Net savings',label:`Net savings · ${f0(M[y===THIS_YEAR?THIS_MONTH:(y<THIS_YEAR?12:1)].ns)}`,data:nsD,borderColor:c3,backgroundColor:c3,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0,order:1}]},
       options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,sort:(x,y)=>x.datasetIndex-y.datasetIndex}},tooltip:{...tip(),itemSort:(x,y)=>x.datasetIndex-y.datasetIndex,callbacks:{label:c=>` ${c.dataset.nm}: ${f2(c.parsed.y)} ${b}`}}},scales:axes()}});
   }
   const ct=catTotals.filter(x=>x[1]>0).sort((a,b2)=>b2[1]-a[1]);
