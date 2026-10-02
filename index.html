@@ -141,6 +141,10 @@ td .carry{color:var(--muted);font-style:italic}
 .toast.on{opacity:1}
 .chartbox{position:relative;height:240px}
 .chartbox.half{height:120px}
+.lg{float:right;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-2)}
+.lg span{display:inline-flex;align-items:center;gap:5px;margin-left:12px}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:2px}
+.lg i.dot{width:8px;height:8px;border-radius:50%;background:var(--text)}
 .stack{display:grid;gap:12px;margin-top:12px}
 .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:4px}
 .bar>i{display:block;height:100%;background:var(--accent-2);border-radius:3px}
@@ -716,8 +720,8 @@ function vYear(v){
   h+=`</tbody></table></div><p class="hint">Projected = end balance if each month's remaining budgets get spent and its budgeted income arrives.</p>`;
   // charts
   h+=`<div class="stack">
-      <div class="card"><h3>NET by month, ${y} (${b})</h3><div class="chartbox half"><canvas id="chT" role="img" aria-label="NET by month: total income minus total expenses plus exchanges"></canvas></div></div>
-      <div class="card"><h3>Real net by month, ${y} (${b})</h3><div class="chartbox half"><canvas id="chN" role="img" aria-label="Real net by month: real income minus real spending"></canvas></div></div>
+      <div class="card"><h3>NET by month, ${y} (${b})<span class="lg"><span><i style="background:color-mix(in srgb,var(--accent-2) 40%,transparent)"></i>Income</span><span><i style="background:color-mix(in srgb,var(--bad) 40%,transparent)"></i>Expenses</span><span><i class="dot"></i>NET</span></span></h3><div class="chartbox half"><canvas id="chT" role="img" aria-label="NET by month: total income up, total expenses down, NET as a dot"></canvas></div></div>
+      <div class="card"><h3>Real net by month, ${y} (${b})<span class="lg"><span><i style="background:color-mix(in srgb,var(--accent-2) 40%,transparent)"></i>Income</span><span><i style="background:color-mix(in srgb,var(--bad) 40%,transparent)"></i>Spending</span><span><i class="dot"></i>Net</span></span></h3><div class="chartbox half"><canvas id="chN" role="img" aria-label="Real net by month: real income minus real spending"></canvas></div></div>
       <div class="card"><h3>End balance & projection (${b})</h3><div class="chartbox half"><canvas id="chY" role="img" aria-label="End balance by month with projection"></canvas></div></div>
       <div class="card"><h3>Savings in / out & net savings (${b})</h3><div class="chartbox"><canvas id="chS" role="img" aria-label="Money put into savings, transfers from savings and net savings by month"></canvas></div></div>
       <div class="card"><h3>Spending by category, ${y} (${b})</h3><div class="chartbox"><canvas id="chC" role="img" aria-label="Spending by category"></canvas></div></div></div>`;
@@ -743,16 +747,18 @@ function vYear(v){
   const pos=css('--accent-2'), neg=css('--bad');
   const sgn=v=>`${v<0?'−':'+'}${f2(Math.abs(v))}`;
   const totD=months.map(m=>isFut(m)?null:r2(M[m].net));
-  mkChart('chT',{type:'bar',data:{labels:MN,datasets:[{label:'NET',data:totD,backgroundColor:totD.map(v=>v<0?neg:pos),borderRadius:4,borderSkipped:false,barPercentage:.7}]},
-    options:{maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{...tip(),callbacks:{
-      title:c=>`${MN[c[0].dataIndex]} ${y}`,
-      label:c=>{const m=c.dataIndex+1;return [` Total income: ${f2(M[m].inc)} ${b}`,` Total expenses: ${f2(M[m].exp)} ${b}`,` Exchanges in − out: ${sgn(M[m].exIn-M[m].exOut)} ${b}`,` NET: ${sgn(c.parsed.y)} ${b}`];}}}},
-      scales:{x:{grid:{display:false},border:{display:false},ticks:{maxRotation:0,autoSkipPadding:8}},y:{grid:{color:ctx=>ctx.tick.value===0?css('--text-2'):css('--line'),drawTicks:false},border:{display:false},ticks:{maxTicksLimit:4,padding:6,callback:v=>f0(v)}}}}});
-  mkChart('chN',{type:'bar',data:{labels:MN,datasets:[{label:'Real net',data:netD,backgroundColor:netD.map(v=>v<0?neg:pos),borderRadius:4,borderSkipped:false,barPercentage:.7}]},
-    options:{maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{...tip(),callbacks:{
-      title:c=>`${MN[c[0].dataIndex]} ${y}`,
-      label:c=>{const m=c.dataIndex+1;return [` Real income: ${f2(M[m].realInc)} ${b}`,` Real spending: ${f2(M[m].realSp)} ${b}`,` Real net: ${c.parsed.y<0?'−':'+'}${f2(Math.abs(c.parsed.y))} ${b}`];}}}},
-      scales:{x:{grid:{display:false},border:{display:false},ticks:{maxRotation:0,autoSkipPadding:8}},y:{grid:{color:ctx=>ctx.tick.value===0?css('--text-2'):css('--line'),drawTicks:false},border:{display:false},ticks:{maxTicksLimit:4,padding:6,callback:v=>f0(v)}}}}});
+  // income up, spending down (faint bars), net as a dot; hover anywhere in a month for the detail
+  const mirror=(id,incD,spD,nD,nm,lines)=>mkChart(id,{type:'bar',data:{labels:MN,datasets:[
+      {type:'line',label:nm,data:nD,showLine:false,pointRadius:4.5,pointHoverRadius:6,pointBackgroundColor:nD.map(v=>v<0?neg:css('--text')),pointBorderColor:css('--surface'),pointBorderWidth:2,order:0},
+      {label:'in',data:incD,backgroundColor:pos+'66',borderRadius:4,borderSkipped:false,barPercentage:.7,stack:'s',order:1},
+      {label:'out',data:spD.map(v=>v===null?null:-v),backgroundColor:neg+'66',borderRadius:4,borderSkipped:false,barPercentage:.7,stack:'s',order:1}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tip(),filter:c=>c.datasetIndex===0,callbacks:{
+      title:c=>`${MN[c[0].dataIndex]} ${y}`,label:c=>lines(c.dataIndex+1)}}},
+      scales:{x:{stacked:true,grid:{display:false},border:{display:false},ticks:{maxRotation:0,autoSkipPadding:8}},y:{stacked:true,grid:{color:ctx=>ctx.tick.value===0?css('--text-2'):css('--line'),drawTicks:false},border:{display:false},ticks:{maxTicksLimit:4,padding:6,callback:v=>f0(v)}}}}});
+  mirror('chT',months.map(m=>isFut(m)?null:r2(M[m].inc)),months.map(m=>isFut(m)?null:r2(M[m].exp)),totD,'NET',
+    m=>[` Total income: ${f2(M[m].inc)} ${b}`,` Total expenses: ${f2(M[m].exp)} ${b}`,` Exchanges in − out: ${sgn(M[m].exIn-M[m].exOut)} ${b}`,` NET: ${sgn(M[m].net)} ${b}`]);
+  mirror('chN',months.map(m=>isFut(m)?null:r2(M[m].realInc)),months.map(m=>isFut(m)?null:r2(M[m].realSp)),netD,'Real net',
+    m=>[` Real income: ${f2(M[m].realInc)} ${b}`,` Real spending: ${f2(M[m].realSp)} ${b}`,` Real net: ${sgn(M[m].realInc-M[m].realSp)} ${b}`]);
   mkChart('chY',{type:'line',data:{labels:MN,datasets:[
     {label:'End balance',data:endD,borderColor:css('--accent-2'),backgroundColor:css('--accent-2'),borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0},
     {label:'Projected',data:projD,borderColor:css('--muted'),backgroundColor:css('--muted'),borderDash:[5,4],borderWidth:2,pointRadius:3,tension:0}]},
