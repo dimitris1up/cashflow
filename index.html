@@ -273,7 +273,8 @@ function saveLocal(){
 }
 const saveUI=()=>localStorage.setItem(LS_UI,JSON.stringify(UI));
 const cfg=k=>D.sec[k].v;
-function setSec(k,v){D.sec[k]={u:nowS(),v};D.dirty.sec[k]=1;saveLocal();scheduleSync();}
+const nextU=prev=>Math.max(nowS(),(+prev||0)+1);   // a new version is always newer than the one it replaces (clock differences between devices)
+function setSec(k,v){D.sec[k]={u:nextU(D.sec[k]&&D.sec[k].u),v};D.dirty.sec[k]=1;saveLocal();scheduleSync();}
 function markTx(id,y){D.dirty.tx[id]=+y;}
 const isDirty=()=>Object.keys(D.dirty.tx).length+Object.keys(D.dirty.sec).length>0;
 
@@ -413,11 +414,12 @@ function upsertTx(t){
   // t: {id?, date:'YYYY-MM-DD', ds, t, a, cy, a2?, cy2?}
   const y=+t.date.slice(0,4), md=t.date.slice(5);
   const id=t.id||rid();
-  const o={id,y,md,ds:(t.ds||'').trim(),t:t.t,a:r2(t.a),cy:t.cy,u:nowS()};
+  const prev=t.id?findAny(t.id):null;
+  const o={id,y,md,ds:(t.ds||'').trim(),t:t.t,a:r2(t.a),cy:t.cy,u:nextU(prev&&prev.u)};
   if(t.t===FX){o.a2=r2(t.a2);o.cy2=t.cy2;}
   placeTx(o); markTx(id,y); saveLocal(); scheduleSync();   // placeTx also handles a date moved to another year
 }
-function deleteTx(y,id){ D.tx[y][id]={id,y:+y,u:nowS(),del:1}; markTx(id,y); saveLocal(); scheduleSync(); }
+function deleteTx(y,id){ D.tx[y][id]={id,y:+y,u:nextU(D.tx[y][id]&&D.tx[y][id].u),del:1}; markTx(id,y); saveLocal(); scheduleSync(); }
 function findTx(id){ for(const y in D.tx) if(D.tx[y][id]&&!D.tx[y][id].del) return D.tx[y][id]; return null; }
 
 /* ---------------- UI shell ---------------- */
@@ -816,9 +818,9 @@ function vSettings(v){
   // categories editor
   const cats=cfg('cats');
   h+=`<div class="card" style="margin-top:12px"><h2>Categories & types</h2>
-    <p class="hint">Rename a type and all its past entries and budgets follow. Renaming to an existing type merges the two. "Savings" types count as money moved out of the book into savings; the income type <select onchange="setSec('pull',this.value)">${cats.filter(c=>c.kind==='in').flatMap(c=>c.types).map(t=>`<option ${t===cfg('pull')?'selected':''}>${esc(t)}</option>`).join('')}</select> is treated as money pulled back from savings (excluded from real income).</p>
+    <p class="hint">Rename a type or category and all its past entries and budgets follow. Renaming to an existing name, or deleting a type or category that has entries or budgets, asks where to move them. "Savings" types count as money moved out of the book into savings; the income type <select onchange="setSec('pull',this.value)">${cats.filter(c=>c.kind==='in').flatMap(c=>c.types).map(t=>`<option ${t===cfg('pull')?'selected':''}>${esc(t)}</option>`).join('')}</select> is treated as money pulled back from savings (excluded from real income).</p>
     ${cats.map((c,ci)=>`<details ${ci===0?'':''}><summary>${esc(c.l)} <span class="hint">(${c.kind==='in'?'income':c.kind==='save'?'savings':'expense'} · ${c.types.length})</span></summary><div style="padding:6px 0 12px 14px">
-      <div class="typerow"><span class="hint" style="width:90px">Label</span><input type="text" value="${esc(c.l)}" data-ci="${ci}" onchange="renameCat(+this.dataset.ci,this.value)"></div>
+      <div class="typerow"><span class="hint" style="width:90px">Label</span><input type="text" value="${esc(c.l)}" data-ci="${ci}" onchange="renameCat(+this.dataset.ci,this.value)"><button class="btn sm dan" onclick="deleteCat(${ci})">Delete category</button></div>
       ${c.types.map(t=>`<div class="typerow"><input type="text" value="${esc(t)}" data-old="${esc(t)}" onchange="renameType(this.dataset.old,this.value)"><button class="btn sm dan" data-t="${esc(t)}" onclick="removeType(this.dataset.t)" aria-label="Remove">✕</button></div>`).join('')}
       <div class="typerow"><input type="text" placeholder="+ new type" data-ci="${ci}" onchange="addType(+this.dataset.ci,this.value)"></div></div></details>`).join('')}
     <div class="row" style="margin-top:10px"><input type="text" id="newcat" placeholder="New expense category"><button class="btn sm" onclick="addCat()">Add category</button></div></div>`;
@@ -890,25 +892,102 @@ function importPaste(){
   toast(`${add} rows imported`);
 }
 function mutateCats(fn){ const C=JSON.parse(JSON.stringify(cfg('cats'))); fn(C); setSec('cats',C); }
-function renameCat(ci,l){ l=l.trim(); if(!l) return render(); mutateCats(C=>{C[ci].l=l;}); render(); }
-function addType(ci,t){ t=t.trim(); if(!t) return; if(typeMap()[t]) {toast('Type already exists');return render();} mutateCats(C=>C[ci].types.push(t)); render(); }
-function addCat(){ const l=document.getElementById('newcat').value.trim(); if(!l) return; mutateCats(C=>{ const k=l.toUpperCase().replace(/[^A-Z0-9]+/g,'_'); const i=C.findIndex(c=>c.k==='OTHER'); C.splice(i<0?C.length:i,0,{k,l,kind:'out',types:[]}); }); render(); }
+const sameName=(a,b)=>String(a).trim().toLowerCase()===String(b).trim().toLowerCase();
+function findType(n){ return Object.keys(typeMap()).find(t=>sameName(t,n)); }
+function uniqKey(l,C){ const k0=l.toUpperCase().replace(/[^A-Z0-9]+/g,'_')||'CAT'; let k=k0,i=2; while(C.some(c=>c.k===k)) k=k0+'_'+(i++); return k; }
+function typeUse(t){ // entries and monthly budgets that use type t
+  const n=allTxSorted(x=>x.t!==FX&&resolveType(x.t)===t).length; let b=0; const B=cfg('budgets');
+  for(const bk in B) for(const ym in B[bk]) if(B[bk][ym][t]!==undefined) b++;
+  return {n,b};
+}
+function fixPull(){ const TM=typeMap(); if(!TM[cfg('pull')]){ const t=cfg('cats').filter(c=>c.kind==='in').flatMap(c=>c.types)[0]; if(t) setSec('pull',t); } }
+/* move all entries, budgets and the savings-pull setting of type oldT to newT (cats are changed by the caller) */
+function moveTypes(pairs){
+  const Al={...cfg('aliases')}, B=JSON.parse(JSON.stringify(cfg('budgets'))); let pull=cfg('pull');
+  for(const [oldT,newT] of pairs){
+    for(const k in Al) if(Al[k]===oldT) Al[k]=newT;
+    Al[oldT]=newT; delete Al[newT];
+    for(const y in D.tx) for(const t of Object.values(D.tx[y])) if(!t.del&&t.t===oldT){ t.t=newT; t.u=nextU(t.u); markTx(t.id,y); }
+    for(const b in B) for(const k in B[b]) if(B[b][k][oldT]!==undefined){ B[b][k][newT]=r2((+B[b][k][newT]||0)+(+B[b][k][oldT])); delete B[b][k][oldT]; }
+    if(pull===oldT) pull=newT;
+  }
+  saveLocal(); setSec('aliases',Al); setSec('budgets',B); if(pull!==cfg('pull')) setSec('pull',pull);
+}
+function renameCat(ci,l){
+  l=l.trim(); const C=cfg('cats'), c=C[ci]; if(!l||!c||l===c.l) return render();
+  const tgt=C.find((x,i)=>i!==ci&&sameName(x.l,l));
+  if(!tgt){ mutateCats(C=>{C[ci].l=l;}); return render(); }
+  if((c.kind==='in')!==(tgt.kind==='in')){ toast('Income and expense categories cannot be merged'); return render(); }
+  if(!c.types.length){ if(confirm(`"${tgt.l}" already exists. Delete the empty category "${c.l}"?`)){ mutateCats(C=>C.splice(C.findIndex(x=>x.k===c.k),1)); toast('Category deleted'); } return render(); }
+  const def={}; for(const t of c.types) def[t]=tgt.types.find(x=>sameName(x,t))||'__keep';
+  openMerge({title:`Merge category "${c.l}" into "${tgt.l}"`,src:c.types,catK:c.k,tgtK:tgt.k,def,btn:'Merge'});
+}
+function deleteCat(ci){
+  const C=cfg('cats'), c=C[ci]; if(!c) return;
+  if(c.kind==='in'&&C.filter(x=>x.kind==='in').length<2) return toast('Keep at least one income category');
+  const used=c.types.filter(t=>{const u=typeUse(t); return u.n||u.b;});
+  if(!used.length){
+    if(!confirm(`Delete category "${c.l}"${c.types.length?` and its ${c.types.length} unused type${c.types.length>1?'s':''}`:''}?`)) return;
+    mutateCats(C=>C.splice(C.findIndex(x=>x.k===c.k),1)); fixPull(); toast('Category deleted'); return render();
+  }
+  openMerge({title:`Delete category "${c.l}"`,src:c.types,catK:c.k,def:{},btn:'Delete & move'});
+}
+function addType(ci,t){
+  t=t.trim(); if(!t) return; if(findType(t)) {toast('Type already exists');return render();}
+  const Al=cfg('aliases'); if(Al[t]!==undefined){ const A2={...Al}; delete A2[t]; setSec('aliases',A2); } // an old renamed name is free again
+  mutateCats(C=>C[ci].types.push(t)); render();
+}
+function addCat(){
+  const l=document.getElementById('newcat').value.trim(); if(!l) return;
+  if(cfg('cats').some(c=>sameName(c.l,l))) return toast('Category already exists');
+  mutateCats(C=>{ const k=uniqKey(l,C); const i=C.findIndex(c=>c.k==='OTHER'); C.splice(i<0?C.length:i,0,{k,l,kind:'out',types:[]}); }); render();
+}
 function renameType(oldT,newT){
   newT=newT.trim(); if(!newT||newT===oldT) return render();
-  const exists=!!typeMap()[newT];
-  if(exists&&!confirm(`"${newT}" already exists. Merge all "${oldT}" entries and budgets into it?`)) return render();
-  mutateCats(C=>{ for(const c of C){ const i=c.types.indexOf(oldT); if(i>-1){ if(exists) c.types.splice(i,1); else c.types[i]=newT; } } });
-  const Al={...cfg('aliases'),[oldT]:newT}; delete Al[newT]; setSec('aliases',Al);
-  const u=nowS(); for(const y in D.tx) for(const t of Object.values(D.tx[y])) if(!t.del&&t.t===oldT){ t.t=newT; t.u=u; markTx(t.id,y); } saveLocal();
-  const B=JSON.parse(JSON.stringify(cfg('budgets'))); for(const b in B) for(const k in B[b]) if(B[b][k][oldT]!==undefined){ B[b][k][newT]=r2((+B[b][k][newT]||0)+(+B[b][k][oldT])); delete B[b][k][oldT]; } setSec('budgets',B);
-  if(cfg('pull')===oldT) setSec('pull',newT);
-  toast(exists?'Merged':'Renamed'); render();
+  const ex=findType(newT);
+  if(ex&&ex!==oldT) return openMerge({title:`"${ex}" already exists`,src:[oldT],def:{[oldT]:ex},btn:'Merge'});
+  moveTypes([[oldT,newT]]);
+  mutateCats(C=>{ for(const c of C){ const i=c.types.indexOf(oldT); if(i>-1) c.types[i]=newT; } });
+  toast('Renamed'); render();
 }
 function removeType(t){
-  const used=allTxSorted(x=>resolveType(x.t)===t).length;
-  if(used){ const to=prompt(`"${t}" has ${used} entries. Type the name of the type to move them to (it must exist):`); if(!to) return; if(!typeMap()[to.trim()]) return toast('That type does not exist'); return renameType(t,to.trim()); }
-  if(!confirm(`Remove type "${t}"?`)) return;
-  mutateCats(C=>{ for(const c of C){ const i=c.types.indexOf(t); if(i>-1) c.types.splice(i,1);} }); render();
+  const u=typeUse(t);
+  if(!u.n&&!u.b){ if(!confirm(`Remove type "${t}"?`)) return; mutateCats(C=>{ for(const c of C) c.types=c.types.filter(x=>x!==t); }); fixPull(); return render(); }
+  openMerge({title:`Delete type "${t}"`,src:[t],def:{},btn:'Delete & move'});
+}
+/* merge dialog: for each type being merged/deleted, the user picks the type its entries and budgets go to */
+let MG=null;
+function openMerge(o){
+  MG=o; const C=cfg('cats'), TM=typeMap();
+  const srcCat=o.catK?C.find(c=>c.k===o.catK):TM[o.src[0]], inc=srcCat&&srcCat.kind==='in', tgt=o.tgtK?C.find(c=>c.k===o.tgtK):null;
+  const groups=C.filter(c=>c.k!==o.catK&&(c.kind==='in')===inc);
+  const opts=t=>(tgt?`<option value="__keep" ${o.def[t]==='__keep'?'selected':''}>Keep as its own type in "${esc(tgt.l)}"</option>`:`<option value="">— choose —</option>`)
+    +groups.map(c=>{const ts=c.types.filter(x=>!o.src.includes(x)); return ts.length?`<optgroup label="${esc(c.l)}">${ts.map(x=>`<option ${o.def[t]===x?'selected':''}>${esc(x)}</option>`).join('')}</optgroup>`:'';}).join('');
+  o.rows=[]; const empty=[];
+  let rows='';
+  for(const t of o.src){
+    const u=typeUse(t);
+    if(!tgt&&!u.n&&!u.b){ empty.push(t); continue; }
+    const i=o.rows.length; o.rows.push(t);
+    rows+=`<div class="field"><label>${esc(t)} <span class="hint">· ${u.n} entr${u.n===1?'y':'ies'}${u.b?` · ${u.b} budget${u.b>1?'s':''}`:''} → move to</span></label><select id="mg_${i}" class="w100">${opts(t)}</select></div>`;
+  }
+  let h=`<h2>${esc(o.title)}</h2><p class="hint">Pick where each type's entries and budgets go.${o.catK?` The category "${esc(srcCat.l)}" is removed afterwards.`:''}${empty.length?` Unused types removed with it: ${empty.map(esc).join(', ')}.`:''}</p>${rows}
+    <div class="row" style="margin-top:16px"><button class="btn pri" onclick="applyMerge()">${o.btn}</button><div class="spacer" style="flex:1"></div><button class="btn" onclick="closeSheet();render()">Cancel</button></div>`;
+  document.getElementById('sheet').innerHTML=h; document.getElementById('ov').classList.add('on');
+}
+function applyMerge(){
+  const o=MG; if(!o) return; const plan=[];
+  for(let i=0;i<o.rows.length;i++){ const v=document.getElementById('mg_'+i).value; if(!v) return toast(`Choose where "${o.rows[i]}" goes`); plan.push([o.rows[i],v]); }
+  const move=plan.filter(p=>p[1]!=='__keep'), keep=plan.filter(p=>p[1]==='__keep').map(p=>p[0]);
+  if(move.length) moveTypes(move);
+  const gone=move.map(p=>p[0]);
+  mutateCats(C=>{
+    for(const c of C) c.types=c.types.filter(x=>!gone.includes(x));
+    if(o.tgtK){ const T=C.find(c=>c.k===o.tgtK); for(const t of keep) if(!T.types.includes(t)) T.types.push(t); }
+    if(o.catK){ const i=C.findIndex(c=>c.k===o.catK); if(i>-1) C.splice(i,1); }
+  });
+  fixPull(); MG=null; closeSheet();
+  toast(o.catK&&!o.tgtK?'Category deleted, entries moved':o.catK?'Categories merged':o.btn==='Merge'?'Merged':'Type deleted, entries moved'); render();
 }
 
 /* ---------------- boot ---------------- */
