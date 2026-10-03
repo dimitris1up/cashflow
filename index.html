@@ -141,6 +141,8 @@ td .carry{color:var(--muted);font-style:italic}
 .toast.on{opacity:1}
 .chartbox{position:relative;height:240px}
 .chartbox.half{height:120px}
+.card.warnc{border-color:var(--warn)}
+.card.warnc h3{color:var(--warn)}
 .lg{float:right;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-2)}
 .lg span{display:inline-flex;align-items:center;gap:5px;margin-left:12px}
 .lg i{display:inline-block;width:10px;height:10px;border-radius:2px}
@@ -391,7 +393,7 @@ async function syncNow(opts={}){
     for(const k in secOut) if(D.sec[k]&&D.sec[k].u===secOut[k].u) delete D.dirty.sec[k];
     for(const r of res.rows||[]) applyRow(r);
     for(const k in res.sec||{}){ const r=res.sec[k], l=D.sec[k]; if(!l||r.u>l.u||(r.u===l.u&&!D.dirty.sec[k])){ D.sec[k]=r; delete D.dirty.sec[k]; } }
-    D.lastSync=res.t; SY.sheetUrl=res.url||SY.sheetUrl; SY.count=res.count||0; SY.at=Date.now(); saveSync();
+    D.lastSync=res.t; SY.sheetUrl=res.url||SY.sheetUrl; SY.count=res.count||0; SY.backup=res.backup; SY.at=Date.now(); saveSync();
     saveLocal(); syncing=false; syncState='ok'; syncErr=''; refreshPill();
     if((res.rows||[]).length||Object.keys(res.sec||{}).length||opts.render) render();
     if(syncAgain||isDirty()) scheduleSync(1500);
@@ -471,6 +473,7 @@ function vHome(v){
   const disp=UI.disp, hasAny=Object.values(D.tx).some(o=>Object.values(o).some(t=>!t.del));
   let h='';
   if(!hasAny) h+=`<div class="card" style="margin-bottom:12px"><h2>Welcome</h2><p class="t2">Start by importing your 2026 data (Settings → Import JSON), or just tap <b>+</b> to add a first entry. Syncing with your Google Sheet is set up in Settings.</p><button class="btn pri" data-tab="settings">Go to Settings</button></div>`;
+  h+=uncatCard();
   h+=`<div class="row" style="justify-content:space-between;margin-bottom:10px">${rateLine()}<div class="seg">${BOOKS.map(b=>`<button class="${disp===b?'on':''}" onclick="UI.disp='${b}';saveUI();render()">Totals in ${b}</button>`).join('')}</div></div>`;
   // totals now
   const tot=k=>{ const e=A.EUR.M[m][k], c=A.CHF.M[m][k]; return disp==='EUR'? e+conv(c,'CHF','EUR') : conv(e,'EUR','CHF')+c; };
@@ -796,6 +799,7 @@ function vSettings(v){
     <div class="field"><label>Password (the TOKEN in the script)</label><input id="s_tok" class="w100" type="password" value="${esc(SY.token)}" autocomplete="off"></div>
     <div class="row"><button class="btn pri" onclick="connectCloud()">${cloudOn()?'Save & reconnect':'Connect'}</button>${cloudOn()?`<button class="btn" onclick="syncNow({manual:true,render:true})">Sync now</button><button class="btn dan" onclick="disconnect()">Disconnect</button>`:''}</div>
     <p class="hint">Status: ${cloudOn()?(syncState==='err'?`<span class="bad">error – ${esc(syncErr)}</span>`:'connected'):'local only'}${ago!==null&&cloudOn()?` · last sync ${ago<1?'just now':ago+' min ago'}`:''}${SY.count?` · ${SY.count} rows in the Sheet`:''}${isDirty()?` · ${Object.keys(D.dirty.tx).length} entries waiting to sync`:''}</p>
+    ${cloudOn()?backupLine():''}
     ${SY.sheetUrl?`<p><a href="${esc(SY.sheetUrl)}" target="_blank" rel="noopener">Open my Google Sheet ↗</a></p>`:''}
     <p class="hint">On another device: same link + password → Connect. They are stored only in this browser, never in the app file.</p>
   </div>
@@ -988,6 +992,35 @@ function applyMerge(){
   });
   fixPull(); MG=null; closeSheet();
   toast(o.catK&&!o.tgtK?'Category deleted, entries moved':o.catK?'Categories merged':o.btn==='Merge'?'Merged':'Type deleted, entries moved'); render();
+}
+
+/* ---------------- uncategorized fixer ---------------- */
+function uncatCard(){
+  const TM=typeMap(), g={};
+  for(const t of allTxSorted(x=>x.t!==FX)){ const tt=resolveType(t.t); if(!TM[tt]) (g[tt]=g[tt]||[]).push(t); }
+  const ks=Object.keys(g); if(!ks.length) return '';
+  const n=ks.reduce((s,k)=>s+g[k].length,0), C=cfg('cats');
+  const opts=`<option value="">Move to…</option>`+C.map(c=>`<optgroup label="${esc(c.l)}"><option value="+${esc(c.k)}">＋ keep this name as a type in ${esc(c.l)}</option>${c.types.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('')}</optgroup>`).join('');
+  const sums=k=>BOOKS.map(b=>{const s=g[k].filter(t=>t.cy===b).reduce((a,t)=>a+t.a,0); return s?`${f2(s)} ${b}`:'';}).filter(Boolean).join(' + ');
+  return `<div class="card warnc" style="margin-bottom:12px"><h3>⚠ ${n} entr${n===1?'y':'ies'} without a category</h3>
+    <p class="hint">Their type is not in any category, so they count as expenses but are missing from Month and the category charts. Choose where each type belongs.</p>
+    ${ks.map(k=>`<div class="typerow"><span style="flex:1;min-width:0">${esc(k)} <span class="hint">· ${g[k].length} entr${g[k].length===1?'y':'ies'} · ${sums(k)}</span></span><select data-t="${esc(k)}" onchange="fixUncat(this.dataset.t,this.value)" style="max-width:55%">${opts}</select></div>`).join('')}</div>`;
+}
+function fixUncat(t,v){
+  if(!v) return;
+  if(v[0]==='+'){
+    const k=v.slice(1), Al=cfg('aliases'); if(Al[t]!==undefined){ const A2={...Al}; delete A2[t]; setSec('aliases',A2); }
+    mutateCats(C=>{ const c=C.find(x=>x.k===k); if(c&&!c.types.includes(t)) c.types.push(t); });
+    toast(`"${t}" added as a type`);
+  } else { moveTypes([[t,v]]); toast(`Moved to ${v}`); }
+  render();
+}
+
+/* ---------------- Sheet backup status ---------------- */
+function backupLine(){
+  if(!SY.backup) return `<p class="hint">Weekly Sheet backup: <b>not turned on</b>. In the Sheet: menu Cashflow → Turn on weekly backup (after updating the script).</p>`;
+  const d=Math.floor((Date.now()-SY.backup)/86400000), dt=new Date(SY.backup);
+  return `<p class="hint">Weekly Sheet backup: last ${pad(dt.getDate())} ${MN[dt.getMonth()]} ${dt.getFullYear()}${d>8?` · <span class="bad">${d} days ago – check the script</span>`:''} · folder "Cashflow backups" in your Drive.</p>`;
 }
 
 /* ---------------- boot ---------------- */
