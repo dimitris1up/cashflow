@@ -319,7 +319,7 @@ function agg(y,book){
       if(c&&c.kind==='in'){ bi+=bv; remInc+=Math.max(0,bv-act); }
       else { be+=bv; const d=bv-act; if(d>0) unspent+=d; } }
     for(const t in o.types){ const c=TM[t]; if(c&&c.kind==='in') continue; const d=(+b[t]||0)-o.types[t]; if(d<0) over+=-d; }
-    o.budInc=bi; o.budExp=be; o.unspent=unspent; o.over=over;
+    o.budInc=bi; o.budExp=be; o.unspent=unspent; o.over=over; o.remInc=remInc;
     if(m>=cur&&cur>0){ projAdd+=remInc-unspent; o.proj=o.end+projAdd; } else o.proj=null;
   }
   // net savings: manual, carried forward
@@ -666,7 +666,7 @@ function vMonth(v){
   h+=`<div class="grid g4">
     <div class="card kpi"><div class="lbl">Income</div><div class="val num">${f2(o.inc)}</div><div class="sub">budget ${f2(o.budInc)}</div></div>
     <div class="card kpi"><div class="lbl">Expenses (incl. savings)</div><div class="val num">${f2(o.exp)}</div><div class="sub">budget ${f2(o.budExp)} · savings ${f2(o.sav)}</div></div>
-    <div class="card kpi"><div class="lbl">Net</div><div class="val num ${o.net<0?'bad':''}">${f2(o.net)}</div><div class="sub">projected ${f2(o.net-o.unspent)}${(o.exIn||o.exOut)?` · incl. exchanges +${f0(o.exIn)} / −${f0(o.exOut)}`:''}</div></div>
+    <div class="card kpi"><div class="lbl">Net</div><div class="val num ${o.net<0?'bad':''}">${f2(o.net)}</div><div class="sub">projected ${f2(o.net+o.remInc-o.unspent)}${(o.exIn||o.exOut)?` · incl. exchanges +${f0(o.exIn)} / −${f0(o.exOut)}`:''}</div></div>
     <div class="card kpi"><div class="lbl">Budget unspent / overspent</div><div class="val num"><span class="good">${f0(o.unspent)}</span> / <span class="bad">${f0(o.over)}</span></div><div class="sub">end balance ${f2(o.end)}</div></div></div>`;
   // budget unspent / overspent by category (same rule as the card: per type, max(0, budget − actual) and max(0, actual − budget))
   const BU=budgetGaps(o,bud);
