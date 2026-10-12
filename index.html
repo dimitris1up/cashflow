@@ -460,6 +460,7 @@ function axes(fmt){
 }
 /* clickable legends of the NET / Real net charts: hide/show a series (kept while the app is open) */
 const LGH={};
+const YW=58; const yFit=s=>{s.width=YW;};   // same y-axis width on the month charts so the months line up
 const lgHidden=(id,i)=>!!(LGH[id]&&LGH[id][i]);
 const lgItem=(id,i,html)=>`<span class="lgi ${lgHidden(id,i)?'off':''}" role="button" tabindex="0" data-ch="${id}" data-i="${i}" onclick="lgToggle(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();lgToggle(this)}">${html}</span>`;
 function lgToggle(el){ const id=el.dataset.ch, i=+el.dataset.i, h=(LGH[id]=LGH[id]||{}); h[i]=!h[i]; el.classList.toggle('off',h[i]); const ch=charts[id]; if(ch){ ch.setDatasetVisibility(i,!h[i]); ch.update(); } }
@@ -665,8 +666,14 @@ function vMonth(v){
   h+=`<div class="grid g4">
     <div class="card kpi"><div class="lbl">Income</div><div class="val num">${f2(o.inc)}</div><div class="sub">budget ${f2(o.budInc)}</div></div>
     <div class="card kpi"><div class="lbl">Expenses (incl. savings)</div><div class="val num">${f2(o.exp)}</div><div class="sub">budget ${f2(o.budExp)} · savings ${f2(o.sav)}</div></div>
-    <div class="card kpi"><div class="lbl">Net</div><div class="val num ${o.net<0?'bad':''}">${f2(o.net)}</div><div class="sub">${(o.exIn||o.exOut)?`incl. exchanges +${f0(o.exIn)} / −${f0(o.exOut)}`:'income − expenses'}</div></div>
+    <div class="card kpi"><div class="lbl">Net</div><div class="val num ${o.net<0?'bad':''}">${f2(o.net)}</div><div class="sub">projected ${f2(o.net-o.unspent)}${(o.exIn||o.exOut)?` · incl. exchanges +${f0(o.exIn)} / −${f0(o.exOut)}`:''}</div></div>
     <div class="card kpi"><div class="lbl">Budget unspent / overspent</div><div class="val num"><span class="good">${f0(o.unspent)}</span> / <span class="bad">${f0(o.over)}</span></div><div class="sub">end balance ${f2(o.end)}</div></div></div>`;
+  // budget unspent / overspent by category (same rule as the card: per type, max(0, budget − actual) and max(0, actual − budget))
+  const BU=budgetGaps(o,bud);
+  const box=(id,list,empty)=>list.length?`<div class="chartbox" style="height:${Math.max(110,list.length*30+26)}px"><canvas id="${id}" role="img"></canvas></div>`:`<div class="empty" style="padding:18px 4px">${empty}</div>`;
+  h+=`<div class="grid g2" style="margin-top:12px">
+    <div class="card"><h3>Under budget · ${f2(o.unspent)}</h3>${box('chUn',BU.un,'Nothing left – every budget is used')}</div>
+    <div class="card"><h3>Over budget · ${f2(o.over)}</h3>${box('chOv',BU.ov,'Nothing paid over budget')}</div></div>`;
   h+=`<div class="scroll" style="margin-top:14px"><table class="num"><thead><tr><th>Type</th><th>Budget</th><th>Actual</th><th>Deviation</th></tr></thead><tbody>`;
   for(const c of cats){
     let tb=0,ta=0,rows='';
@@ -684,6 +691,28 @@ function vMonth(v){
   if(unk.length) h+=`<tr class="cat"><td>Uncategorized</td><td></td><td></td><td></td></tr>`+unk.map(t=>`<tr><td class="sub">${esc(t)}</td><td></td><td>${f2(o.types[t])}</td><td></td></tr>`).join('');
   h+=`</tbody></table></div><p class="hint">Deviation: green = under budget (expenses) / above budget (income). Budgets are per book (${b}) and per month.</p>`;
   v.innerHTML=h;
+  gapChart('chUn',BU.un,css('--good'),b,'left');
+  gapChart('chOv',BU.ov,css('--bad'),b,'over');
+}
+function budgetGaps(o,bud){
+  const TM=typeMap(), un={}, ov={};
+  const add=(M,cat,t,v,bv,av)=>{ (M[cat]=M[cat]||{v:0,t:[]}); M[cat].v+=v; M[cat].t.push([t,v,bv,av]); };
+  const types=new Set([...Object.keys(bud),...Object.keys(o.types)]);
+  for(const t of types){ const c=TM[t]; if(c&&c.kind==='in') continue;
+    const bv=+bud[t]||0, av=o.types[t]||0, cat=c?c.l:'Uncategorized';
+    if(bv-av>0.004) add(un,cat,t,bv-av,bv,av); if(av-bv>0.004) add(ov,cat,t,av-bv,bv,av); }
+  const list=M=>Object.entries(M).map(([l,x])=>({l,v:r2(x.v),t:x.t.sort((a,b)=>b[1]-a[1])})).sort((a,b)=>b.v-a.v);
+  return {un:list(un),ov:list(ov)};
+}
+function gapChart(id,list,col,b,word){
+  if(!list.length) return;
+  const lbl={id:'vlbl',afterDatasetsDraw(ch){ const g=ch.ctx, meta=ch.getDatasetMeta(0); g.save(); g.font='600 11px system-ui,-apple-system,Segoe UI,Roboto,sans-serif'; g.fillStyle=css('--text-2'); g.textBaseline='middle';
+    meta.data.forEach((el,i)=>{ g.fillText(f0(list[i].v),el.x+6,el.y); }); g.restore(); }};
+  mkChart(id,{type:'bar',plugins:[lbl],data:{labels:list.map(x=>x.l),datasets:[{label:word,data:list.map(x=>x.v),backgroundColor:col,borderRadius:4,borderSkipped:'start',barPercentage:.75,categoryPercentage:.9}]},
+    options:{indexAxis:'y',maintainAspectRatio:false,layout:{padding:{right:44}},plugins:{legend:{display:false},tooltip:{...tip(),callbacks:{
+      title:c=>c.length?`${list[c[0].dataIndex].l} · ${f2(list[c[0].dataIndex].v)} ${b} ${word}`:'',
+      label:c=>list[c.dataIndex].t.map(([t,v,bv,av])=>` ${t}: ${f2(v)} (budget ${f2(bv)}, paid ${f2(av)})`)}}},
+      scales:{x:{beginAtZero:true,grid:{color:css('--line'),drawTicks:false},border:{display:false},ticks:{maxTicksLimit:5,callback:v=>f0(v)}},y:{grid:{display:false},border:{display:false}}}}});
 }
 function stepMonth(d){ let m=UI.month+d, y=UI.year; if(m<1){m=12;y--;} if(m>12){m=1;y++;} UI.month=m; UI.year=y; saveUI(); render(); }
 function setBudget(t,val){
@@ -777,7 +806,7 @@ function vYear(v){
       {label:'out',data:spD.map(v=>v===null?null:-v),hidden:lgHidden(id,2),backgroundColor:neg+'66',borderRadius:4,borderSkipped:false,barPercentage:.7,stack:'s',order:1}]},
     options:{maintainAspectRatio:false,interaction:{mode:'indexData',intersect:false},plugins:{legend:{display:false},tooltip:{...tip(),filter:(c,i)=>i===0,callbacks:{
       title:c=>c.length?`${MN[c[0].dataIndex]} ${y}`:'',label:c=>lines(c.dataIndex+1)}}},
-      scales:{x:{stacked:true,grid:{display:false},border:{display:false},ticks:{maxRotation:0,autoSkipPadding:8}},y:{stacked:true,grid:{color:ctx=>ctx.tick.value===0?css('--text-2'):css('--line'),drawTicks:false},border:{display:false},ticks:{maxTicksLimit:4,padding:6,callback:v=>f0(v)}}}}});
+      scales:{x:{stacked:true,grid:{display:false},border:{display:false},ticks:{maxRotation:0,autoSkipPadding:8}},y:{stacked:true,afterFit:yFit,grid:{color:ctx=>ctx.tick.value===0?css('--text-2'):css('--line'),drawTicks:false},border:{display:false},ticks:{maxTicksLimit:4,padding:6,callback:v=>f0(v)}}}}});
   mirror('chT',months.map(m=>isFut(m)?null:r2(M[m].inc)),months.map(m=>isFut(m)?null:r2(M[m].exp)),totD,'NET',
     m=>[` Total income: ${f2(M[m].inc)} ${b}`,` Total expenses: ${f2(M[m].exp)} ${b}`,` Exchanges in − out: ${sgn(M[m].exIn-M[m].exOut)} ${b}`,` NET: ${sgn(M[m].net)} ${b}`]);
   mirror('chN',months.map(m=>isFut(m)?null:r2(M[m].realInc)),months.map(m=>isFut(m)?null:r2(M[m].realSp)),netD,'Real net',
@@ -785,7 +814,7 @@ function vYear(v){
   mkChart('chY',{type:'line',data:{labels:MN,datasets:[
     {label:'End balance',data:endD,borderColor:css('--accent-2'),backgroundColor:css('--accent-2'),borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0},
     {label:'Projected',data:projD,borderColor:css('--muted'),backgroundColor:css('--muted'),borderDash:[5,4],borderWidth:2,pointRadius:3,tension:0}]},
-    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true}},tooltip:{...tip(),callbacks:{label:c=>` ${c.dataset.label}: ${f2(c.parsed.y)} ${b}`}}},scales:(()=>{const x=axes();x.y.ticks.maxTicksLimit=4;x.x.ticks.maxRotation=0;x.x.ticks.autoSkipPadding=8;return x;})()}});
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true}},tooltip:{...tip(),callbacks:{label:c=>` ${c.dataset.label}: ${f2(c.parsed.y)} ${b}`}}},scales:(()=>{const x=axes();x.y.ticks.maxTicksLimit=4;x.x.ticks.maxRotation=0;x.x.ticks.autoSkipPadding=8;x.x.offset=true;x.y.afterFit=yFit;return x;})()}});
   { // Savings in / out & net savings
     const pullT=cfg('pull');
     const vis=months.filter(m=>!isFut(m));
@@ -796,7 +825,7 @@ function vYear(v){
       {type:'bar',nm:'Savings (put in)',label:`Savings · ${f0(sum(svD))}`,data:svD,backgroundColor:c1,borderRadius:4,borderSkipped:'start',barPercentage:.8,categoryPercentage:.7,order:2},
       {type:'bar',nm:pullT,label:`${pullT} · ${f0(sum(plD))}`,data:plD,backgroundColor:c2,borderRadius:4,borderSkipped:'start',barPercentage:.8,categoryPercentage:.7,order:2},
       {type:'line',nm:'Net savings',label:`Net savings · ${f0(M[y===THIS_YEAR?THIS_MONTH:(y<THIS_YEAR?12:1)].ns)}`,data:nsD,borderColor:c3,backgroundColor:c3,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0,order:1}]},
-      options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,sort:(x,y)=>x.datasetIndex-y.datasetIndex}},tooltip:{...tip(),itemSort:(x,y)=>x.datasetIndex-y.datasetIndex,callbacks:{label:c=>` ${c.dataset.nm}: ${f2(c.parsed.y)} ${b}`}}},scales:axes()}});
+      options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,sort:(x,y)=>x.datasetIndex-y.datasetIndex}},tooltip:{...tip(),itemSort:(x,y)=>x.datasetIndex-y.datasetIndex,callbacks:{label:c=>` ${c.dataset.nm}: ${f2(c.parsed.y)} ${b}`}}},scales:(()=>{const x=axes();x.y.afterFit=yFit;return x;})()}});
   }
   const ct=catTotals.filter(x=>x[1]>0).sort((a,b2)=>b2[1]-a[1]);
   mkChart('chC',{type:'bar',data:{labels:ct.map(x=>x[0]),datasets:[{label:'Spent',data:ct.map(x=>r2(x[1])),backgroundColor:css(b==='EUR'?'--s-eur':'--s-chf'),borderRadius:4,borderSkipped:'start',barPercentage:.75}]},
