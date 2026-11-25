@@ -517,10 +517,17 @@ function vHome(v){
   v.innerHTML=h;
   const labels=MN, cur=m;
   const bal=labels.map((_,i)=>i+1>cur?null:tot2(A,i+1,'total',disp));
+  // projected total (both books + net savings, today's rate): same projection as the Year tab, from this month to Dec
+  const pTot=(m,b)=>A[b].M[m].proj===null?null:A[b].M[m].proj+A[b].M[m].ns;
+  const prj=labels.map((_,i)=>{ const m=i+1; if(m<cur) return null; const e=pTot(m,'EUR'), c=pTot(m,'CHF'); if(e===null||c===null) return null;
+    const v=disp==='EUR'? e+conv(c,'CHF','EUR') : conv(e,'EUR','CHF')+c; return isNaN(v)?null:r2(v); });
   const spE=labels.map((_,i)=>i+1>cur?null:(disp==='EUR'?A.EUR.M[i+1].realSp:conv(A.EUR.M[i+1].realSp,'EUR','CHF')));
   const spC=labels.map((_,i)=>i+1>cur?null:(disp==='CHF'?A.CHF.M[i+1].realSp:conv(A.CHF.M[i+1].realSp,'CHF','EUR')));
-  mkChart('chBal',{type:'line',data:{labels,datasets:[{label:'Total balance',data:bal,borderColor:css('--accent-2'),backgroundColor:css('--accent-2'),borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0}]},
-    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tip(),callbacks:{label:c=>` ${f2(c.parsed.y)} ${disp}`}}},scales:axes()}});
+  mkChart('chBal',{type:'line',data:{labels,datasets:[{label:`Total balance · ${MN[cur-1]} ${bal[cur-1]===null?'–':f0(bal[cur-1])}`,data:bal,borderColor:css('--accent-2'),backgroundColor:css('--accent-2'),borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0},
+      {label:`Projected · Dec ${prj[11]===null?'–':f0(prj[11])}`,data:prj,borderColor:css('--muted'),backgroundColor:css('--muted'),borderDash:[5,4],borderWidth:2,pointRadius:3,pointHoverRadius:5,tension:0}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true}},tooltip:{...tip(),callbacks:{label:c=>{
+      if(c.datasetIndex===0) return ` Total balance: ${f2(c.parsed.y)} ${disp}`;
+      const m=c.dataIndex+1; return [` Projected: ${f2(c.parsed.y)} ${disp}`,`   EUR book: ${f2(pTot(m,'EUR'))} EUR`,`   CHF book: ${f2(pTot(m,'CHF'))} CHF`]; }}}},scales:axes()}});
   mkChart('chSp',{type:'bar',data:{labels,datasets:[{label:'EUR book',data:spE,backgroundColor:css('--s-eur'),borderRadius:4,borderSkipped:'start',borderColor:css('--surface'),borderWidth:{top:2}},{label:'CHF book',data:spC,backgroundColor:css('--s-chf'),borderRadius:4,borderSkipped:'start',borderColor:css('--surface'),borderWidth:{top:2}}]},
     options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'rectRounded'}},tooltip:{...tip(),callbacks:{label:c=>` ${c.dataset.label}: ${f2(c.parsed.y)} ${disp}`}}},scales:{...axes(),x:{...axes().x,stacked:true},y:{...axes().y,stacked:true}}}});
 }
