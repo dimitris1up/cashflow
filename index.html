@@ -519,15 +519,25 @@ function vHome(v){
   const bal=labels.map((_,i)=>i+1>cur?null:tot2(A,i+1,'total',disp));
   // projected total (both books + net savings, today's rate): same projection as the Year tab, from this month to Dec
   const pTot=(m,b)=>A[b].M[m].proj===null?null:A[b].M[m].proj+A[b].M[m].ns;
-  const prj=labels.map((_,i)=>{ const m=i+1; if(m<cur) return null; const e=pTot(m,'EUR'), c=pTot(m,'CHF'); if(e===null||c===null) return null;
+  const pCash=(m,b)=>A[b].M[m].proj;   // cash only = same projection without net savings
+  const both=f=>labels.map((_,i)=>{ const m=i+1; if(m<cur) return null; const e=f(m,'EUR'), c=f(m,'CHF'); if(e===null||c===null) return null;
     const v=disp==='EUR'? e+conv(c,'CHF','EUR') : conv(e,'EUR','CHF')+c; return isNaN(v)?null:r2(v); });
+  const prj=both(pTot), prjC=both(pCash);
+  const cash=labels.map((_,i)=>i+1>cur?null:tot2(A,i+1,'end',disp));
+  const mix=(a,b,t)=>'#'+[1,3,5].map(i=>Math.round(parseInt(a.slice(i,i+2),16)*(1-t)+parseInt(b.slice(i,i+2),16)*t).toString(16).padStart(2,'0')).join('');
+  const cT=css('--v3'), cC=css('--accent-2'), gT=css('--muted'), gC=mix(css('--muted'),'#ffffff',.35);
+  const lastV=a=>a[cur-1]===null?'–':f0(a[cur-1]), decV=a=>a[11]===null?'–':f0(a[11]);
+  const parts=(f,m)=>[`   EUR book: ${f2(f(m,'EUR'))} EUR`,`   CHF book: ${f2(f(m,'CHF'))} CHF`];
   const spE=labels.map((_,i)=>i+1>cur?null:(disp==='EUR'?A.EUR.M[i+1].realSp:conv(A.EUR.M[i+1].realSp,'EUR','CHF')));
   const spC=labels.map((_,i)=>i+1>cur?null:(disp==='CHF'?A.CHF.M[i+1].realSp:conv(A.CHF.M[i+1].realSp,'CHF','EUR')));
-  mkChart('chBal',{type:'line',data:{labels,datasets:[{label:`Total balance · ${MN[cur-1]} ${bal[cur-1]===null?'–':f0(bal[cur-1])}`,data:bal,borderColor:css('--accent-2'),backgroundColor:css('--accent-2'),borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0},
-      {label:`Projected · Dec ${prj[11]===null?'–':f0(prj[11])}`,data:prj,borderColor:css('--muted'),backgroundColor:css('--muted'),borderDash:[5,4],borderWidth:2,pointRadius:3,pointHoverRadius:5,tension:0}]},
+  mkChart('chBal',{type:'line',data:{labels,datasets:[
+      {nm:'Total balance',label:`Total balance · ${MN[cur-1]} ${lastV(bal)}`,data:bal,borderColor:cT,backgroundColor:cT,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0},
+      {nm:'Total projected',label:`Total projected · Dec ${decV(prj)}`,data:prj,borderColor:gT,backgroundColor:gT,borderDash:[5,4],borderWidth:2,pointRadius:3,pointHoverRadius:5,tension:0,pf:pTot},
+      {nm:'Cash',label:`Cash · ${MN[cur-1]} ${lastV(cash)}`,data:cash,borderColor:cC,backgroundColor:cC,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0},
+      {nm:'Cash projected',label:`Cash projected · Dec ${decV(prjC)}`,data:prjC,borderColor:gC,backgroundColor:gC,borderDash:[5,4],borderWidth:2,pointRadius:3,pointHoverRadius:5,tension:0,pf:pCash}]},
     options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true}},tooltip:{...tip(),callbacks:{label:c=>{
-      if(c.datasetIndex===0) return ` Total balance: ${f2(c.parsed.y)} ${disp}`;
-      const m=c.dataIndex+1; return [` Projected: ${f2(c.parsed.y)} ${disp}`,`   EUR book: ${f2(pTot(m,'EUR'))} EUR`,`   CHF book: ${f2(pTot(m,'CHF'))} CHF`]; }}}},scales:axes()}});
+      const d=c.dataset, line=` ${d.nm}: ${f2(c.parsed.y)} ${disp}`;
+      return d.pf?[line,...parts(d.pf,c.dataIndex+1)]:line; }}}},scales:axes()}});
   mkChart('chSp',{type:'bar',data:{labels,datasets:[{label:'EUR book',data:spE,backgroundColor:css('--s-eur'),borderRadius:4,borderSkipped:'start',borderColor:css('--surface'),borderWidth:{top:2}},{label:'CHF book',data:spC,backgroundColor:css('--s-chf'),borderRadius:4,borderSkipped:'start',borderColor:css('--surface'),borderWidth:{top:2}}]},
     options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'rectRounded'}},tooltip:{...tip(),callbacks:{label:c=>` ${c.dataset.label}: ${f2(c.parsed.y)} ${disp}`}}},scales:{...axes(),x:{...axes().x,stacked:true},y:{...axes().y,stacked:true}}}});
 }
